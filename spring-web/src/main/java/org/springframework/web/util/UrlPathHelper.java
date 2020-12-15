@@ -21,7 +21,9 @@ import java.nio.charset.UnsupportedCharsetException;
 import java.util.Map;
 import java.util.Properties;
 
+import javax.servlet.RequestDispatcher;
 import javax.servlet.ServletRequest;
+import javax.servlet.http.HttpServletMapping;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.MappingMatch;
 
@@ -58,11 +60,10 @@ public class UrlPathHelper {
 	 * {@link #getLookupPathForRequest resolved} lookupPath.
 	 * @since 5.3
 	 */
-	public static final String PATH_ATTRIBUTE = UrlPathHelper.class.getName() + ".path";
+	public static final String PATH_ATTRIBUTE = UrlPathHelper.class.getName() + ".PATH";
 
-	private static boolean isServlet4Present =
-			ClassUtils.isPresent("javax.servlet.http.HttpServletMapping",
-					UrlPathHelper.class.getClassLoader());
+	private static final boolean servlet4Present =
+			ClassUtils.hasMethod(HttpServletRequest.class, "getHttpServletMapping");
 
 	/**
 	 * Special WebSphere request attribute, indicating the original request URI.
@@ -260,12 +261,15 @@ public class UrlPathHelper {
 		}
 	}
 
+	/**
+	 * Check whether servlet path determination can be skipped for the given request.
+	 * @param request current HTTP request
+	 * @return {@code true} if the request mapping has not been achieved using a path
+	 * or if the servlet has been mapped to root; {@code false} otherwise
+	 */
 	private boolean skipServletPathDetermination(HttpServletRequest request) {
-		if (isServlet4Present) {
-			if (request.getHttpServletMapping().getMappingMatch() != null) {
-				return !request.getHttpServletMapping().getMappingMatch().equals(MappingMatch.PATH) ||
-						request.getHttpServletMapping().getPattern().equals("/*");
-			}
+		if (servlet4Present) {
+			return Servlet4Delegate.skipServletPathDetermination(request);
 		}
 		return false;
 	}
@@ -401,18 +405,17 @@ public class UrlPathHelper {
 	 * <li>replace all "//" by "/"</li>
 	 * </ul>
 	 */
-	private String getSanitizedPath(final String path) {
-		String sanitized = path;
-		while (true) {
-			int index = sanitized.indexOf("//");
-			if (index < 0) {
-				break;
+	private static String getSanitizedPath(final String path) {
+		int index = path.indexOf("//");
+		if (index >= 0) {
+			StringBuilder sanitized = new StringBuilder(path);
+			while (index != -1) {
+				sanitized.deleteCharAt(index);
+				index = sanitized.indexOf("//", index);
 			}
-			else {
-				sanitized = sanitized.substring(0, index) + sanitized.substring(index + 1);
-			}
+			return sanitized.toString();
 		}
-		return sanitized;
+		return path;
 	}
 
 	/**
@@ -612,15 +615,21 @@ public class UrlPathHelper {
 				removeSemicolonContentInternal(requestUri) : removeJsessionid(requestUri));
 	}
 
-	private String removeSemicolonContentInternal(String requestUri) {
+	private static String removeSemicolonContentInternal(String requestUri) {
 		int semicolonIndex = requestUri.indexOf(';');
-		while (semicolonIndex != -1) {
-			int slashIndex = requestUri.indexOf('/', semicolonIndex);
-			String start = requestUri.substring(0, semicolonIndex);
-			requestUri = (slashIndex != -1) ? start + requestUri.substring(slashIndex) : start;
-			semicolonIndex = requestUri.indexOf(';', semicolonIndex);
+		if (semicolonIndex == -1) {
+			return requestUri;
 		}
-		return requestUri;
+		StringBuilder sb = new StringBuilder(requestUri);
+		while (semicolonIndex != -1) {
+			int slashIndex = sb.indexOf("/", semicolonIndex + 1);
+			if (slashIndex == -1) {
+				return sb.substring(0, semicolonIndex);
+			}
+			sb.delete(semicolonIndex, slashIndex);
+			semicolonIndex = sb.indexOf(";", semicolonIndex);
+		}
+		return sb.toString();
 	}
 
 	private String removeJsessionid(String requestUri) {
@@ -630,7 +639,7 @@ public class UrlPathHelper {
 			return requestUri;
 		}
 		String start = requestUri.substring(0, index);
-		for (int i = key.length(); i < requestUri.length(); i++) {
+		for (int i = index + key.length(); i < requestUri.length(); i++) {
 			char c = requestUri.charAt(i);
 			if (c == ';' || c == '/') {
 				return start + requestUri.substring(i);
@@ -756,6 +765,23 @@ public class UrlPathHelper {
 		rawPathInstance.setUrlDecode(false);
 		rawPathInstance.setRemoveSemicolonContent(false);
 		rawPathInstance.setReadOnly();
+	}
+
+
+	/**
+	 * Inner class to avoid a hard dependency on Servlet 4 {@link HttpServletMapping}
+	 * and {@link MappingMatch} at runtime.
+	 */
+	private static class Servlet4Delegate {
+
+		public static boolean skipServletPathDetermination(HttpServletRequest request) {
+			HttpServletMapping mapping = (HttpServletMapping) request.getAttribute(RequestDispatcher.INCLUDE_MAPPING);
+			if (mapping == null) {
+				mapping = request.getHttpServletMapping();
+			}
+			MappingMatch match = mapping.getMappingMatch();
+			return (match != null && (!match.equals(MappingMatch.PATH) || mapping.getPattern().equals("/*")));
+		}
 	}
 
 }

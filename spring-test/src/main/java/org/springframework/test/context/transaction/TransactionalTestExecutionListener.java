@@ -22,7 +22,6 @@ import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -35,8 +34,8 @@ import org.springframework.lang.Nullable;
 import org.springframework.test.annotation.Commit;
 import org.springframework.test.annotation.Rollback;
 import org.springframework.test.context.TestContext;
+import org.springframework.test.context.TestContextAnnotationUtils;
 import org.springframework.test.context.support.AbstractTestExecutionListener;
-import org.springframework.test.util.MetaAnnotationUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
@@ -46,6 +45,7 @@ import org.springframework.transaction.interceptor.TransactionAttribute;
 import org.springframework.transaction.interceptor.TransactionAttributeSource;
 import org.springframework.util.Assert;
 import org.springframework.util.ReflectionUtils;
+import org.springframework.util.ReflectionUtils.MethodFilter;
 import org.springframework.util.StringUtils;
 
 /**
@@ -167,7 +167,7 @@ public class TransactionalTestExecutionListener extends AbstractTestExecutionLis
 
 		@Nullable
 		private TransactionAttribute findTransactionAttributeInEnclosingClassHierarchy(Class<?> clazz) {
-			if (MetaAnnotationUtils.searchEnclosingClass(clazz)) {
+			if (TestContextAnnotationUtils.searchEnclosingClass(clazz)) {
 				return findTransactionAttribute(clazz.getEnclosingClass());
 			}
 			return null;
@@ -401,7 +401,7 @@ public class TransactionalTestExecutionListener extends AbstractTestExecutionLis
 	 */
 	protected final boolean isDefaultRollback(TestContext testContext) throws Exception {
 		Class<?> testClass = testContext.getTestClass();
-		Rollback rollback = MetaAnnotationUtils.findMergedAnnotation(testClass, Rollback.class);
+		Rollback rollback = TestContextAnnotationUtils.findMergedAnnotation(testClass, Rollback.class);
 		boolean rollbackPresent = (rollback != null);
 
 		if (rollbackPresent) {
@@ -462,9 +462,9 @@ public class TransactionalTestExecutionListener extends AbstractTestExecutionLis
 	 * as well as annotated interface default methods
 	 */
 	private List<Method> getAnnotatedMethods(Class<?> clazz, Class<? extends Annotation> annotationType) {
-		return Arrays.stream(ReflectionUtils.getUniqueDeclaredMethods(clazz, ReflectionUtils.USER_DECLARED_METHODS))
-				.filter(method -> AnnotatedElementUtils.hasAnnotation(method, annotationType))
-				.collect(Collectors.toList());
+		MethodFilter methodFilter = ReflectionUtils.USER_DECLARED_METHODS
+				.and(method -> AnnotatedElementUtils.hasAnnotation(method, annotationType));
+		return Arrays.asList(ReflectionUtils.getUniqueDeclaredMethods(clazz, methodFilter));
 	}
 
 }

@@ -1877,11 +1877,15 @@ following annotations.
 * <<spring-testing-annotation-contexthierarchy>>
 * <<spring-testing-annotation-activeprofiles>>
 * <<spring-testing-annotation-testpropertysource>>
+* <<spring-testing-annotation-dynamicpropertysource>>
 * <<spring-testing-annotation-dirtiescontext>>
 * <<spring-testing-annotation-testexecutionlisteners>>
 * <<testcontext-tx,`@Transactional`>>
 * <<spring-testing-annotation-commit>>
 * <<spring-testing-annotation-rollback>>
+* <<spring-testing-annotation-sql>>
+* <<spring-testing-annotation-sqlconfig>>
+* <<spring-testing-annotation-sqlmergemode>>
 * <<integration-testing-annotations-testconstructor>>
 
 NOTE: The use of `@NestedTestConfiguration` typically only makes sense in conjunction
@@ -4090,11 +4094,14 @@ integration tests that need to add properties with dynamic values to the set of
 `PropertySources` in the `Environment` for the `ApplicationContext` loaded for the
 integration test.
 
-NOTE: The `@DynamicPropertySource` annotation and its supporting infrastructure were
+[NOTE]
+====
+The `@DynamicPropertySource` annotation and its supporting infrastructure were
 originally designed to allow properties from
 https://www.testcontainers.org/[Testcontainers] based tests to be exposed easily to
 Spring integration tests. However, this feature may also be used with any form of
 external resource whose lifecycle is maintained outside the test's `ApplicationContext`.
+====
 
 In contrast to the <<testcontext-ctx-management-property-sources,`@TestPropertySource`>>
 annotation that is applied at the class level, `@DynamicPropertySource` must be applied
@@ -4108,6 +4115,15 @@ available to components within the test's `ApplicationContext` via the `redis.ho
 `redis.port` properties. These properties can be accessed via Spring's `Environment`
 abstraction or injected directly into Spring-managed components – for example, via
 `@Value("${redis.host}")` and `@Value("${redis.port}")`, respectively.
+
+[TIP]
+====
+If you use `@DynamicPropertySource` in a base class and discover that tests in subclasses
+fail because the dynamic properties change between subclasses, you may need to annotate
+your base class with <<spring-testing-annotation-dirtiescontext, `@DirtiesContext`>> to
+ensure that each subclass gets its own `ApplicationContext` with the correct dynamic
+properties.
+====
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -4455,10 +4471,10 @@ the underlying context cache, you can set the log level for the
 In the unlikely case that a test corrupts the application context and requires reloading
 (for example, by modifying a bean definition or the state of an application object), you
 can annotate your test class or test method with `@DirtiesContext` (see the discussion of
-`@DirtiesContext` in <<spring-testing-annotation-dirtiescontext>>). This instructs Spring
-to remove the context from the cache and rebuild the application context before running
-the next test that requires the same application context. Note that support for the
-`@DirtiesContext` annotation is provided by the
+`@DirtiesContext` in <<spring-testing-annotation-dirtiescontext, Spring Testing
+Annotations>>). This instructs Spring to remove the context from the cache and rebuild
+the application context before running the next test that requires the same application
+context. Note that support for the `@DirtiesContext` annotation is provided by the
 `DirtiesContextBeforeModesTestExecutionListener` and the
 `DirtiesContextTestExecutionListener`, which are enabled by default.
 

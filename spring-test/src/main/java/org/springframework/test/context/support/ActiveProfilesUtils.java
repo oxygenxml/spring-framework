@@ -17,7 +17,6 @@
 package org.springframework.test.context.support;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -28,12 +27,12 @@ import org.apache.commons.logging.LogFactory;
 import org.springframework.beans.BeanUtils;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.ActiveProfilesResolver;
-import org.springframework.test.util.MetaAnnotationUtils.AnnotationDescriptor;
+import org.springframework.test.context.TestContextAnnotationUtils.AnnotationDescriptor;
 import org.springframework.util.Assert;
 import org.springframework.util.ObjectUtils;
 import org.springframework.util.StringUtils;
 
-import static org.springframework.test.util.MetaAnnotationUtils.findAnnotationDescriptor;
+import static org.springframework.test.context.TestContextAnnotationUtils.findAnnotationDescriptor;
 
 /**
  * Utility methods for working with {@link ActiveProfiles @ActiveProfiles} and
@@ -53,6 +52,8 @@ abstract class ActiveProfilesUtils {
 
 	private static final Log logger = LogFactory.getLog(ActiveProfilesUtils.class);
 
+	private static final DefaultActiveProfilesResolver defaultActiveProfilesResolver = new DefaultActiveProfilesResolver();
+
 
 	/**
 	 * Resolve <em>active bean definition profiles</em> for the supplied {@link Class}.
@@ -71,8 +72,9 @@ abstract class ActiveProfilesUtils {
 	static String[] resolveActiveProfiles(Class<?> testClass) {
 		Assert.notNull(testClass, "Class must not be null");
 
-		List<String[]> profileArrays = new ArrayList<>();
 		AnnotationDescriptor<ActiveProfiles> descriptor = findAnnotationDescriptor(testClass, ActiveProfiles.class);
+		List<String[]> profileArrays = new ArrayList<>();
+
 		if (descriptor == null && logger.isDebugEnabled()) {
 			logger.debug(String.format(
 					"Could not find an 'annotation declaring class' for annotation type [%s] and class [%s]",
@@ -81,39 +83,40 @@ abstract class ActiveProfilesUtils {
 
 		while (descriptor != null) {
 			Class<?> rootDeclaringClass = descriptor.getRootDeclaringClass();
-			ActiveProfiles annotation = descriptor.synthesizeAnnotation();
+			ActiveProfiles annotation = descriptor.getAnnotation();
 
 			if (logger.isTraceEnabled()) {
 				logger.trace(String.format("Retrieved @ActiveProfiles [%s] for declaring class [%s]",
 						annotation, descriptor.getDeclaringClass().getName()));
 			}
 
+			ActiveProfilesResolver resolver;
 			Class<? extends ActiveProfilesResolver> resolverClass = annotation.resolver();
 			if (ActiveProfilesResolver.class == resolverClass) {
-				resolverClass = DefaultActiveProfilesResolver.class;
+				resolver = defaultActiveProfilesResolver;
 			}
-
-			ActiveProfilesResolver resolver;
-			try {
-				resolver = BeanUtils.instantiateClass(resolverClass, ActiveProfilesResolver.class);
-			}
-			catch (Exception ex) {
-				String msg = String.format("Could not instantiate ActiveProfilesResolver of type [%s] " +
-						"for test class [%s]", resolverClass.getName(), rootDeclaringClass.getName());
-				logger.error(msg);
-				throw new IllegalStateException(msg, ex);
+			else {
+				try {
+					resolver = BeanUtils.instantiateClass(resolverClass, ActiveProfilesResolver.class);
+				}
+				catch (Exception ex) {
+					String msg = String.format("Could not instantiate ActiveProfilesResolver of type [%s] " +
+							"for test class [%s]", resolverClass.getName(), rootDeclaringClass.getName());
+					logger.error(msg);
+					throw new IllegalStateException(msg, ex);
+				}
 			}
 
 			String[] profiles = resolver.resolve(rootDeclaringClass);
 			if (!ObjectUtils.isEmpty(profiles)) {
-				profileArrays.add(profiles);
+				// Prepend to the list so that we can later traverse "down" the hierarchy
+				// to ensure that we retain the top-down profile registration order
+				// within a test class hierarchy.
+				profileArrays.add(0, profiles);
 			}
 
 			descriptor = (annotation.inheritProfiles() ? descriptor.next() : null);
 		}
-
-		// Reverse the list so that we can traverse "down" the hierarchy.
-		Collections.reverse(profileArrays);
 
 		Set<String> activeProfiles = new LinkedHashSet<>();
 		for (String[] profiles : profileArrays) {

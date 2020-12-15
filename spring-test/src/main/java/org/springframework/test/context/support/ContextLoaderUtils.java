@@ -26,21 +26,19 @@ import java.util.Set;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
-import org.springframework.core.annotation.AnnotationUtils;
-import org.springframework.lang.Nullable;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.ContextConfigurationAttributes;
 import org.springframework.test.context.ContextHierarchy;
 import org.springframework.test.context.SmartContextLoader;
-import org.springframework.test.util.MetaAnnotationUtils.AnnotationDescriptor;
-import org.springframework.test.util.MetaAnnotationUtils.UntypedAnnotationDescriptor;
+import org.springframework.test.context.TestContextAnnotationUtils.AnnotationDescriptor;
+import org.springframework.test.context.TestContextAnnotationUtils.UntypedAnnotationDescriptor;
 import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
 import static org.springframework.core.annotation.AnnotationUtils.getAnnotation;
 import static org.springframework.core.annotation.AnnotationUtils.isAnnotationDeclaredLocally;
-import static org.springframework.test.util.MetaAnnotationUtils.findAnnotationDescriptor;
-import static org.springframework.test.util.MetaAnnotationUtils.findAnnotationDescriptorForTypes;
+import static org.springframework.test.context.TestContextAnnotationUtils.findAnnotationDescriptor;
+import static org.springframework.test.context.TestContextAnnotationUtils.findAnnotationDescriptorForTypes;
 
 /**
  * Utility methods for resolving {@link ContextConfigurationAttributes} from the
@@ -128,8 +126,7 @@ abstract class ContextLoaderUtils {
 			List<ContextConfigurationAttributes> configAttributesList = new ArrayList<>();
 
 			if (contextConfigDeclaredLocally) {
-				ContextConfiguration contextConfiguration = AnnotationUtils.synthesizeAnnotation(
-						desc.getAnnotationAttributes(), ContextConfiguration.class, desc.getRootDeclaringClass());
+				ContextConfiguration contextConfiguration = (ContextConfiguration) desc.getAnnotation();
 				convertContextConfigToConfigAttributesAndAddToList(
 						contextConfiguration, rootDeclaringClass, configAttributesList);
 			}
@@ -245,18 +242,33 @@ abstract class ContextLoaderUtils {
 					annotationType.getName(), testClass.getName()));
 
 		List<ContextConfigurationAttributes> attributesList = new ArrayList<>();
-		resolveContextConfigurationAttributes(attributesList, descriptor);
+		ContextConfiguration previousAnnotation = null;
+		Class<?> previousDeclaringClass = null;
+		while (descriptor != null) {
+			ContextConfiguration currentAnnotation = descriptor.getAnnotation();
+			// Don't ignore duplicate @ContextConfiguration declaration without resources,
+			// because the ContextLoader will likely detect default resources specific to the
+			// annotated class.
+			if (currentAnnotation.equals(previousAnnotation) && hasResources(currentAnnotation)) {
+				if (logger.isDebugEnabled()) {
+					logger.debug(String.format("Ignoring duplicate %s declaration on [%s], "
+							+ "since it is also declared on [%s].", currentAnnotation,
+							previousDeclaringClass.getName(), descriptor.getRootDeclaringClass().getName()));
+				}
+			}
+			else {
+				convertContextConfigToConfigAttributesAndAddToList(currentAnnotation,
+						descriptor.getRootDeclaringClass(), attributesList);
+			}
+			previousAnnotation = currentAnnotation;
+			previousDeclaringClass = descriptor.getRootDeclaringClass();
+			descriptor = descriptor.next();
+		}
 		return attributesList;
 	}
 
-	private static void resolveContextConfigurationAttributes(List<ContextConfigurationAttributes> attributesList,
-			@Nullable AnnotationDescriptor<ContextConfiguration> descriptor) {
-
-		if (descriptor != null) {
-			convertContextConfigToConfigAttributesAndAddToList(descriptor.synthesizeAnnotation(),
-					descriptor.getRootDeclaringClass(), attributesList);
-			resolveContextConfigurationAttributes(attributesList, descriptor.next());
-		}
+	private static boolean hasResources(ContextConfiguration contextConfiguration) {
+		return (contextConfiguration.locations().length > 0 || contextConfiguration.classes().length > 0);
 	}
 
 	/**

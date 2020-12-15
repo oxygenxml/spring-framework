@@ -118,10 +118,6 @@ public class ResourceWebHandlerTests {
 		assertThat(resourceLastModifiedDate("test/foo.css") / 1000).isEqualTo(headers.getLastModified() / 1000);
 		assertThat(headers.getFirst("Accept-Ranges")).isEqualTo("bytes");
 		assertThat(headers.get("Accept-Ranges").size()).isEqualTo(1);
-
-		StepVerifier.create(exchange.getResponse().getBody())
-				.expectErrorMatches(ex -> ex.getMessage().startsWith("No content was written"))
-				.verify();
 	}
 
 	@Test
@@ -216,6 +212,24 @@ public class ResourceWebHandlerTests {
 		HttpHeaders headers = exchange.getResponse().getHeaders();
 		assertThat(headers.getContentType()).isEqualTo(MediaType.parseMediaType("application/javascript"));
 		assertResponseBody(exchange, "function foo() { console.log(\"hello world\"); }");
+	}
+
+	@Test
+	public void getResourceWithRegisteredMediaType() throws Exception {
+		MediaType mediaType = new MediaType("foo", "bar");
+
+		ResourceWebHandler handler = new ResourceWebHandler();
+		handler.setLocations(Collections.singletonList(new ClassPathResource("test/", getClass())));
+		handler.setMediaTypes(Collections.singletonMap("bar", mediaType));
+		handler.afterPropertiesSet();
+
+		MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get(""));
+		setPathWithinHandlerMapping(exchange, "foo.bar");
+		handler.handle(exchange).block(TIMEOUT);
+
+		HttpHeaders headers = exchange.getResponse().getHeaders();
+		assertThat(headers.getContentType()).isEqualTo(mediaType);
+		assertResponseBody(exchange, "foo bar foo bar foo bar");
 	}
 
 	@Test // SPR-14577
